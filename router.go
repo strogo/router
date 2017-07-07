@@ -11,6 +11,10 @@ import (
 	"github.com/alphagov/router/logger"
 	"github.com/alphagov/router/triemux"
 	"gopkg.in/mgo.v2"
+  "github.com/aws/aws-sdk-go/service/dynamodb"
+  "github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute"
+  "github.com/aws/aws-sdk-go/aws/session"
+  "github.com/aws/aws-sdk-go/aws"
 )
 
 // Router is a wrapper around an HTTP multiplexer (trie.Mux) which retrieves its
@@ -26,19 +30,19 @@ type Router struct {
 }
 
 type Backend struct {
-	BackendID  string `bson:"backend_id"`
-	BackendURL string `bson:"backend_url"`
+	BackendID  string `dynamodbav:"backend_id"`
+	BackendURL string `dynamodbav:"backend_url"`
 }
 
 type Route struct {
-	IncomingPath string `bson:"incoming_path"`
-	RouteType    string `bson:"route_type"`
-	Handler      string `bson:"handler"`
-	BackendID    string `bson:"backend_id"`
-	RedirectTo   string `bson:"redirect_to"`
-	RedirectType string `bson:"redirect_type"`
-	SegmentsMode string `bson:"segments_mode"`
-	Disabled     bool   `bson:"disabled"`
+	IncomingPath string `dynamodbav:"incoming_path"`
+	RouteType    string `dynamodbav:"route_type"`
+	Handler      string `dynamodbav:"handler"`
+	BackendID    string `dynamodbav:"backend_id"`
+	RedirectTo   string `dynamodbav:"redirect_to"`
+	RedirectType string `dynamodbav:"redirect_type"`
+	SegmentsMode string `dynamodbav:"segments_mode"`
+	Disabled     bool   `dynamodbav:"disabled"`
 }
 
 // NewRouter returns a new empty router instance. You will still need to call
@@ -108,13 +112,30 @@ func (rt *Router) ReloadRoutes() {
 	defer sess.Close()
 	sess.SetMode(mgo.Strong, true)
 
-	db := sess.DB(rt.mongoDbName)
+  ddb := dynamodb.New(session.New())
+  backendsQuery := &dynamodb.ScanInput{
+    TableName:            aws.String("backends"),
+  }
+
+  result, err := ddb.Scan(backendsQuery)
 
 	logInfo("router: reloading routes")
 	newmux := triemux.NewMux()
 
-	backends := rt.loadBackends(db.C("backends"))
-	loadRoutes(db.C("routes"), newmux, backends)
+	backends := rt.loadBackends(result)
+
+	routesQuery := &dynamodb.ScanInput{
+		TableName: aws.String("routes"),
+	}
+
+	err = ddb.ScanPages(routesQuery,
+		func(page *dynamodb.ScanOutput, _ bool) bool {
+				fmt.Println("Got page with", *page.Count)
+				loadRoutes(page, newmux, backends)
+				return true
+		})
+
+	fmt.Println(err)
 
 	rt.lock.Lock()
 	rt.mux = newmux
@@ -126,25 +147,21 @@ func (rt *Router) ReloadRoutes() {
 // loadBackends is a helper function which loads backends from the
 // passed mongo collection, constructs a Handler for each one, and returns
 // them in map keyed on the backend_id
-func (rt *Router) loadBackends(c *mgo.Collection) (backends map[string]http.Handler) {
-	backend := &Backend{}
+func (rt *Router) loadBackends(r *dynamodb.ScanOutput) (backends map[string]http.Handler) {
+	backends_list := []Backend{}
 	backends = make(map[string]http.Handler)
 
-	iter := c.Find(nil).Iter()
-
-	for iter.Next(&backend) {
-		backendURL, err := url.Parse(backend.BackendURL)
+	dynamodbattribute.UnmarshalListOfMaps(r.Items, &backends_list)
+	for _, b := range backends_list {
+		fmt.Println(b)
+		backendURL, err := url.Parse(b.BackendURL)
 		if err != nil {
 			logWarn(fmt.Sprintf("router: couldn't parse URL %s for backend %s "+
-				"(error: %v), skipping!", backend.BackendURL, backend.BackendID, err))
+				"(error: %v), skipping!", b.BackendURL, b.BackendID, err))
 			continue
 		}
 
-		backends[backend.BackendID] = handlers.NewBackendHandler(backendURL, rt.backendConnectTimeout, rt.backendHeaderTimeout, rt.logger)
-	}
-
-	if err := iter.Err(); err != nil {
-		panic(err)
+		backends[b.BackendID] = handlers.NewBackendHandler(backendURL, rt.backendConnectTimeout, rt.backendHeaderTimeout, rt.logger)
 	}
 
 	return
@@ -152,11 +169,7 @@ func (rt *Router) loadBackends(c *mgo.Collection) (backends map[string]http.Hand
 
 // loadRoutes is a helper function which loads routes from the passed mongo
 // collection and registers them with the passed proxy mux.
-func loadRoutes(c *mgo.Collection, mux *triemux.Mux, backends map[string]http.Handler) {
-	route := &Route{}
-
-	iter := c.Find(nil).Sort("incoming_path", "route_type").Iter()
-
+func loadRoutes(p *dynamodb.ScanOutput, mux *triemux.Mux, backends map[string]http.Handler) {
 	goneHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "410 gone", http.StatusGone)
 	})
@@ -164,7 +177,10 @@ func loadRoutes(c *mgo.Collection, mux *triemux.Mux, backends map[string]http.Ha
 		http.Error(w, "503 Service Unavailable", http.StatusServiceUnavailable)
 	})
 
-	for iter.Next(&route) {
+	routes := []Route{}
+
+	dynamodbattribute.UnmarshalListOfMaps(p.Items, &routes)
+	for _, route := range routes {
 		prefix := (route.RouteType == "prefix")
 
 		// the database contains paths with % encoded routes.
@@ -194,7 +210,7 @@ func loadRoutes(c *mgo.Collection, mux *triemux.Mux, backends map[string]http.Ha
 				incomingURL.Path, prefix, route.BackendID))
 		case "redirect":
 			redirectTemporarily := (route.RedirectType == "temporary")
-			handler := handlers.NewRedirectHandler(incomingURL.Path, route.RedirectTo, shouldPreserveSegments(route), redirectTemporarily)
+			handler := handlers.NewRedirectHandler(incomingURL.Path, route.RedirectTo, shouldPreserveSegments(&route), redirectTemporarily)
 			mux.Handle(incomingURL.Path, prefix, handler)
 			logDebug(fmt.Sprintf("router: registered %s (prefix: %v) -> %s",
 				incomingURL.Path, prefix, route.RedirectTo))
@@ -212,10 +228,6 @@ func loadRoutes(c *mgo.Collection, mux *triemux.Mux, backends map[string]http.Ha
 				"%s, skipping!", route, route.Handler))
 			continue
 		}
-	}
-
-	if err := iter.Err(); err != nil {
-		panic(err)
 	}
 }
 
