@@ -1,16 +1,16 @@
 #!/usr/bin/env groovy
 
-REPOSITORY = 'router'
+REPOSITORY = "router"
 
-repoName = JOB_NAME.split('/')[0]
+repoName = JOB_NAME.split("/")[0]
 
-node ('mongodb-2.4') {
-  env.REPO      = 'alphagov/router'
-  env.BUILD_DIR = '__build'
+node ("mongodb-2.4") {
+  env.REPO      = "alphagov/router"
+  env.BUILD_DIR = "__build"
   env.GOPATH    = "${WORKSPACE}/${BUILD_DIR}"
   env.SRC_PATH  = "${env.GOPATH}/src/github.com/${REPO}"
 
-  def govuk = load '/var/lib/jenkins/groovy_scripts/govuk_jenkinslib.groovy'
+  def govuk = load "/var/lib/jenkins/groovy_scripts/govuk_jenkinslib.groovy"
 
   try {
     stage("Checkout") {
@@ -35,41 +35,41 @@ node ('mongodb-2.4') {
     // Start Build
     stage("Build") {
       dir(env.SRC_PATH) {
-        sh 'BINARY=$WORKSPACE/router make clean build'
+        sh "BINARY=$WORKSPACE/router make clean build"
       }
     }
 
     // Run tests
-    wrap([$class: 'AnsiColorBuildWrapper']) {
+    wrap([$class: "AnsiColorBuildWrapper"]) {
       stage("Test") {
         dir(env.SRC_PATH) {
-          sh 'BINARY=$WORKSPACE/router make test'
+          sh "BINARY=$WORKSPACE/router make test"
 
-          sh '$WORKSPACE/router -version'
+          sh "$WORKSPACE/router -version"
         }
       }
     }
 
     // Archive Binaries from build
     stage("Archive Artifact") {
-      archiveArtifacts 'router'
+      archiveArtifacts "router"
     }
 
     // Update GitHub Status
     stage("Push release tag") {
-      echo 'Pushing tag'
-      govuk.pushTag(REPOSITORY, env.BRANCH_NAME, 'release_' + env.BUILD_NUMBER)
+      echo "Pushing tag"
+      govuk.pushTag(REPOSITORY, env.BRANCH_NAME, "release_" + env.BUILD_NUMBER)
     }
 
     stage("Push branch binary to S3") {
-      govuk.uploadArtefactToS3('router', "s3://govuk-integration-artefact/router/${env.BRANCH_NAME}/router")
+      govuk.uploadArtefactToS3("router", "s3://govuk-integration-artefact/router/${env.BRANCH_NAME}/router")
     }
 
     // Push the Go binary for the build to S3, for AWS releases
     if (env.BRANCH_NAME == "master") {
       stage("Push release binary to S3") {
         target_tag = "release_${env.BUILD_NUMBER}"
-        govuk.uploadArtefactToS3('router', "s3://govuk-integration-artefact/router/${target_tag}/router")
+        govuk.uploadArtefactToS3("router", "s3://govuk-integration-artefact/router/${target_tag}/router")
       }
     }
 
@@ -92,14 +92,14 @@ node ('mongodb-2.4') {
 
     // Deploy application
     stage("Deploy") {
-      govuk.deployIntegration(REPOSITORY, env.BRANCH_NAME, 'release', 'deploy')
+      govuk.deployIntegration(REPOSITORY, env.BRANCH_NAME, "release", "deploy")
     }
 
   } catch (e) {
       currentBuild.result = "FAILED"
-      step([$class: 'Mailer',
+      step([$class: "Mailer",
             notifyEveryUnstableBuild: true,
-            recipients: 'govuk-ci-notifications@digital.cabinet-office.gov.uk',
+            recipients: "govuk-ci-notifications@digital.cabinet-office.gov.uk",
             sendToIndividuals: true])
     throw e
     }
