@@ -14,6 +14,7 @@ clean:
 	rm -rf $(BINARY)
 
 build:
+	go get
 	go build -ldflags "-X main.version=$(VERSION)" -o $(BINARY)
 
 test: build
