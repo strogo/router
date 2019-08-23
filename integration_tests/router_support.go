@@ -93,7 +93,7 @@ func waitForServerUp(addr string) {
 			conn.Close()
 			return
 		}
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(1 * time.Second)
 	}
-	panic("Server not accepting connections after 20 attempts")
+	panic(fmt.Sprintf("Server at %v not accepting connections after 20 attempts", addr))
 }
