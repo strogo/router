@@ -84,7 +84,8 @@ func initRouteHelper() error {
 		databaseUrl = "localhost"
 	}
 
-	sess, err := mgo.Dial(databaseUrl)
+	sess, err := mgo.DialWithTimeout(databaseUrl, 30*time.Second)
+
 	if err != nil {
 		return fmt.Errorf("Failed to connect to mongo: " + err.Error() + " using url " + databaseUrl)
 	}
