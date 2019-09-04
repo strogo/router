@@ -602,6 +602,7 @@ func (cluster *mongoCluster) syncServersIteration(direct bool) {
 // true, it will attempt to return a socket to a slave server.  If it is
 // false, the socket will necessarily be to a master server.
 func (cluster *mongoCluster) AcquireSocketWithPoolTimeout(mode Mode, slaveOk bool, syncTimeout time.Duration, serverTags []bson.D, info *DialInfo) (s *mongoSocket, err error) {
+
 	var started time.Time
 	var syncCount uint
 	for {
@@ -622,7 +623,9 @@ func (cluster *mongoCluster) AcquireSocketWithPoolTimeout(mode Mode, slaveOk boo
 				syncCount = cluster.syncCount
 			} else if syncTimeout != 0 && started.Before(time.Now().Add(-syncTimeout)) || cluster.dialInfo.FailFast && cluster.syncCount != syncCount {
 				cluster.RUnlock()
-				return nil, errors.New("no reachable servers")
+				cluster_state := fmt.Sprintf("Cluster had %d known masters and %d known slaves", mastersLen, slavesLen)
+				timeout_state := fmt.Sprintf(" syncTimeout: %v. syncCount: %v, cluster.syncCount: %v. cluster.dialInfo.FailFast: %v", syncTimeout, syncCount, cluster.syncCount, cluster.dialInfo.FailFast)
+				return nil, errors.New("no reachable servers! " + cluster_state + timeout_state)
 			}
 			log("Waiting for servers to synchronize...")
 			cluster.syncServers()
