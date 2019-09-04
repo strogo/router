@@ -1,10 +1,12 @@
 package main
 
 import (
+	"log"
 	"fmt"
 	"net/http"
 	"net/url"
 	"sync"
+	"os"
 	"time"
 
 	"github.com/alphagov/router/handlers"
@@ -105,6 +107,11 @@ func (rt *Router) ReloadRoutes() {
 			logger.NotifySentry(logger.ReportableError{ Error: err })
 		}
 	}()
+
+	var aLogger *log.Logger
+	aLogger = log.New(os.Stderr, "", log.LstdFlags)
+	mgo.SetLogger(aLogger)
+	mgo.SetDebug(true)
 
 	logDebug("mgo: connecting to", rt.mongoURL)
 	sess, err := mgo.Dial(rt.mongoURL)

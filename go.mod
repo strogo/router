@@ -1,6 +1,6 @@
 module github.com/alphagov/router
 
-go 1.12
+go 1.12.9
 
 require (
 	github.com/alext/tablecloth v0.0.0-20150502092832-fbddb1a44a21

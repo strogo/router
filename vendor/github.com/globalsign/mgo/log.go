@@ -69,7 +69,7 @@ func SetDebug(debug bool) {
 		globalMutex.Lock()
 		defer globalMutex.Unlock()
 	}
-	globalDebug = debug
+	globalDebug = true
 }
 
 func log(v ...interface{}) {
