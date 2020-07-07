@@ -68,7 +68,7 @@ func (mux *Mux) lookup(path string) (handler http.Handler, ok bool) {
 
 	entry, ok := val.(muxEntry)
 	if !ok {
-		log.Printf("lookup: got value (%v) from trie that wasn't a muxEntry!", val)
+		log.Printf("Error: lookup got value (%v) from trie that wasn't a muxEntry!", val)
 		EntryNotFoundCountMetric.Inc()
 		return nil, false
 	}
